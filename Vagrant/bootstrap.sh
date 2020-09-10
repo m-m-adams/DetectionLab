@@ -1,5 +1,3 @@
-#! /bin/bash
-
 # Override existing DNS Settings using netplan, but don't do it for Terraform builds
 if ! curl -s 169.254.169.254 --connect-timeout 2 >/dev/null; then
   echo -e "    eth1:\n      dhcp4: true\n      nameservers:\n        addresses: [8.8.8.8,8.8.4.4]" >>/etc/netplan/01-netcfg.yaml
@@ -36,7 +34,7 @@ apt_install_prerequisites() {
   apt-get -qq update
   apt-get -qq install -y apt-fast
   echo "[$(date +%H:%M:%S)]: Running apt-fast install..."
-  apt-fast -qq install -y jq whois build-essential git unzip htop yq mysql-server redis-server python-pip
+  apt-fast -qq install -y jq whois build-essential git unzip htop yq mysql-server redis-server python-pip openjdk-8-jdk apt-transport-https
 }
 
 modify_motd() {
@@ -52,7 +50,7 @@ modify_motd() {
 }
 
 test_prerequisites() {
-  for package in jq whois build-essential git unzip yq mysql-server redis-server python-pip; do
+  for package in jq whois build-essential git unzip yq mysql-server redis-server python-pip openjdk-8-jdk apt-transport-https; do
     echo "[$(date +%H:%M:%S)]: [TEST] Validating that $package is correctly installed..."
     # Loop through each package using dpkg
     if ! dpkg -S $package >/dev/null; then
@@ -110,6 +108,53 @@ fix_eth1_static_ip() {
     if [ "$(dig +short @8.8.8.8 github.com)" ]; then break; fi
     sleep 1
   done
+}
+
+install_ELK() {
+  echo "[$(date +%H:%M:%S)]: Installing elastic stack..."
+  echo "deb https://artifacts.elastic.co/packages/7.x/apt stable main" | sudo tee -a /etc/apt/sources.list.d/elastic-7.x.list > /dev/null
+  sudo apt-get -yq update > /dev/null && sudo apt-get -yq install elasticsearch > /dev/null
+
+  echo " Install Elasticsearch - Complete "
+  echo " Installing Kibana... "
+
+  sudo  apt-get -yq update > /dev/null && sudo DEBIAN_FRONTEND=noninteractive apt-get -yq install kibana > /dev/null
+
+  echo " Install Kibana - Complete "
+  echo " Installing Logstash... "
+
+  sudo apt-get -yq update > /dev/null && sudo apt-get -yq install logstash > /dev/null
+
+  echo " Install Logstash - Complete "
+  echo " Enabling Services for Start on Boot "
+  echo " Starting Elastic, Logstash, Kibana Services "
+
+  sudo /bin/systemctl -q daemon-reload > /dev/null
+  sudo /bin/systemctl -q enable elasticsearch.service > /dev/null
+  sudo /bin/systemctl -q enable logstash.service > /dev/null
+  sudo /bin/systemctl -q enable kibana.service > /dev/null
+  sudo /bin/systemctl -q start elasticsearch.service > /dev/null
+  sudo /bin/systemctl -q start logstash.service > /dev/null
+  sudo /bin/systemctl -q start kibana.service > /dev/null
+
+  echo " Service Status: "
+  function checkIt()
+  {
+   ps auxw | grep -P '\b'$1'(?!-)\b' >/dev/null
+   if [ $? != 0 ]
+   then
+     echo $1" Not Running";
+   else
+     echo $1" Running";
+   fi;
+  }
+
+  checkIt "   elasticsearch"
+  checkIt "   logstash"
+  checkIt "   kibana"
+
+  echo "[$(date +%H:%M:%S)]: Finished installing elastic stack..."
+
 }
 
 install_splunk() {
@@ -525,7 +570,7 @@ main() {
   modify_motd
   test_prerequisites
   fix_eth1_static_ip
-  install_splunk
+  install_ELK
   download_palantir_osquery_config
   install_fleet_import_osquery_config
   install_velociraptor
