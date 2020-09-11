@@ -138,7 +138,7 @@ install_ELK() {
   sudo /bin/systemctl -q start kibana.service > /dev/null
 
   echo " Service Status: "
-  function checkIt()
+  checkIt()
   {
    ps auxw | grep -P '\b'$1'(?!-)\b' >/dev/null
    if [ $? != 0 ]
